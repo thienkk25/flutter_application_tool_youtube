@@ -1,6 +1,9 @@
-import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:image_gallery_saver/image_gallery_saver.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   runApp(const MainApp());
@@ -42,13 +45,17 @@ class _MainAppState extends State<MainApp> {
     });
 
     try {
-      final response = await http.get(Uri.parse(
-          "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$videoId&format=json"));
+      final response = await Dio().get(
+        "https://www.youtube.com/oembed",
+        queryParameters: {
+          'url': 'https://www.youtube.com/watch?v=$videoId',
+          'format': 'json',
+        },
+      );
 
       if (response.statusCode == 200) {
-        final dataGet = jsonDecode(response.body);
         setState(() {
-          data = dataGet;
+          data = response.data;
           checkId = true;
           isLoading = false;
         });
@@ -63,6 +70,32 @@ class _MainAppState extends State<MainApp> {
         checkId = false;
         isLoading = false;
       });
+    }
+  }
+
+  Future<Map?> downloadImage(String imageUrl, String fileName) async {
+    try {
+      if (await Permission.storage.request().isDenied) {
+        //print("Không có quyền truy cập bộ nhớ");
+        return null;
+      }
+
+      final dio = Dio();
+      final response = await dio.get<List<int>>(
+        imageUrl,
+        options: Options(responseType: ResponseType.bytes),
+      );
+
+      final Uint8List imageBytes = Uint8List.fromList(response.data!);
+
+      final result = await ImageGallerySaver.saveImage(
+        imageBytes,
+        name: fileName,
+      );
+
+      return result;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -101,6 +134,30 @@ class _MainAppState extends State<MainApp> {
                       width: 200,
                       fit: BoxFit.cover,
                     ),
+                    data['thumbnail_url'] != null
+                        ? ElevatedButton(
+                            onPressed: () async {
+                              final result = await downloadImage(
+                                  data['thumbnail_url'], data['title']);
+                              if (!mounted) return;
+                              if (result!['isSuccess']) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                        "Tải thành công! ${result['filePath']}"),
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text("Có lỗi, vui lòng thử lại!"),
+                                  ),
+                                );
+                              }
+                            },
+                            child: const Text("Tải ảnh về"),
+                          )
+                        : const SizedBox(),
                   ],
                 ),
               if (!isLoading && !checkId)
